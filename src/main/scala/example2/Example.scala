@@ -2,7 +2,7 @@ package explorer.example2
 
 import chisel3._
 
-import freechips.rocketchip.diplomacy.{LazyModule, LazyModuleImp, ValName}
+import freechips.rocketchip.diplomacy.{LazyModule, LazyModuleImp, InModuleBody, ValName}
 //import freechips.rocketchip.interrupts.{IntXbar, IntSinkNode, IntSourceNode, IntSourcePortSimple, IntSinkPortSimple}
 import freechips.rocketchip.interrupts.{
   IntRange,
@@ -19,50 +19,34 @@ import org.chipsalliance.cde.config.{Config, Field, Parameters}
 case object NEdgeSource extends Field[Int](2)
 case object NEdgeSink   extends Field[Int](2)
 
-//Connect Interrupts to a XBar
 class InterruptsGen(implicit p: Parameters) extends LazyModule {
-  val intSourcePortParams  = IntSourcePortParameters(sources = Seq(IntSourceParameters(range = IntRange(1))))
+  val intSourcePortParams  = IntSourcePortParameters(sources = Seq(IntSourceParameters(range = IntRange(1)))) // Edge with only one interrupt signal; Vec[Bool] of length 1
   val numEdges             = p(NEdgeSource)
-  val node                 = IntSourceNode(portParams = Seq.fill(numEdges)(intSourcePortParams))(ValName("GenNode"))
+  val node                 = IntSourceNode(portParams = Seq.fill(numEdges)(intSourcePortParams))(ValName("GenNode")) // numEdges Edges with each of type Vec[Bool] of length 1
+  val interrupts = InModuleBody{ node.makeIOs() } //Add source node IOs to the moduleImp 
   override lazy val module = new InterruptsGenImp(this)
 }
 
-class InterruptsGenImp(outer: InterruptsGen) extends LazyModuleImp(outer) {
-  val n = outer.node.out.map(x => x._2.source.num).fold(0)(_ + _)
-  val io = IO(new Bundle {
-    val interrupt = Input(Vec(n, Bool()))
-  })
-
-  outer.node.out.map(x => x._1).flatten.zip(io.interrupt).foreach { case (node_port, module_port) =>
-    node_port := module_port
-  }
-}
+class InterruptsGenImp(outer: InterruptsGen) extends LazyModuleImp(outer) {}
 
 class InterruptsRecv(implicit p: Parameters) extends LazyModule {
   val intSinkPortParams    = IntSinkPortParameters(sinks = Seq(IntSinkParameters()))
   val numEdges             = p(NEdgeSink)
   val node                 = IntSinkNode(portParams = Seq.fill(numEdges)(intSinkPortParams))(ValName(s"RecvNode_$numEdges"))
+  val interrupts = InModuleBody{ node.makeIOs()} //Add sink node IOs to the moduleImp
   override lazy val module = new InterruptsRecvImp(this)
 }
 
-class InterruptsRecvImp(outer: InterruptsRecv) extends LazyModuleImp(outer) {
-  val n = outer.node.in.map(x => x._2.source.num).fold(0)(_ + _)
-  val io = IO(new Bundle {
-    val interrupt = Output(Vec(n, Bool()))
-  })
-  outer.node.in.map(x => x._1).flatten.zip(io.interrupt).foreach { case (node_port, module_port) =>
-    module_port := node_port
-  }
-}
+class InterruptsRecvImp(outer: InterruptsRecv) extends LazyModuleImp(outer) {}
 
 /** Module that instantiates InterruptsGen and InterruptsRecv connected to each other with 'nEdges+1' edges. We can
   * connecting/drawing edges between nodes using three different binding operators (:=, :=*, and :*=).
   */
 abstract class TopModule(val nEdges: Int)(implicit p: Parameters = Parameters.empty) extends LazyModule {
 
+  val src   = LazyModule(new InterruptsGen()(new Config((_, _, _) => { case NEdgeSource => nEdges + 1 })))
   val sinkA = LazyModule(new InterruptsRecv()(new Config((_, _, _) => { case NEdgeSink => nEdges })))
   val sinkB = LazyModule(new InterruptsRecv()(new Config((_, _, _) => { case NEdgeSink => 1 })))
-  val src   = LazyModule(new InterruptsGen()(new Config((_, _, _) => { case NEdgeSource => nEdges + 1 })))
 
   sinkB.node := src.node
   override lazy val module = new TopModuleImp(this)
@@ -95,9 +79,30 @@ trait WithBindFlex { this: TopModule =>
     * 
     */ 
   sinkA.node :*=* myAdapter :*= src.node
-  //sinkA.node :*=* myAdapter :*= src.node
+  //sinkA.node :*=* myAdapter :*= src.node  
   //sinkA.node :=* myAdapter :*=* src.node
   //sinkA.node :*= myAdapter :*=* src.node
+
+  /*
+  for( _ <- 0 until nEdges){
+    sinkA.node := myAdapter
+    myAdapter := src.node
+  }
+  */
+
+  //------ Below statements throw compilation error - WHY?? -------------
+
+  /*
+  /* This is BIND-FLEX operator, as myAdapter has "nEdges" input edges, which enforces that it has "nEdges" output edges.
+   * Since myAdapter output edges are fixed, the FLEX-BIND should resolve the edges to sinkA.node to myAdapter as dictated by 
+   * number of output edges required by myAdapter. 
+   */
+  sinkA.node :*=* myAdapter
+  for( _ <- 0 until nEdges){
+    myAdapter := src.node
+  }
+  */ 
+
 }
 
 
@@ -106,8 +111,8 @@ class Method2(n: Int) extends TopModule(n) with WithBindQuery
 class Method3(n: Int) extends TopModule(n) with WithBindStar
 class Method4(n: Int) extends TopModule(n) with WithBindFlex
 
+
 class TopModuleImp(outer: TopModule) extends LazyModuleImp(outer) {
-  println("Module implementation started\n!")
   val n_in = outer.src.node.out.map(x => x._2.source.num).fold(0)(_ + _)
   val sink_ports = outer.sinkA.node.in ++ outer.sinkB.node.in
   val n_out = sink_ports.map(x => x._2.source.num).fold(0)(_ + _) 
@@ -116,6 +121,6 @@ class TopModuleImp(outer: TopModule) extends LazyModuleImp(outer) {
     val out = Output(Vec(n_out, Bool()))
   })
 
-  io.out                        := (outer.sinkA.module.io.interrupt ++ outer.sinkB.module.io.interrupt)
-  outer.src.module.io.interrupt := io.in
+  io.out.zip(outer.sinkA.interrupts ++ outer.sinkB.interrupts).foreach{ case(i,j) => i := j.head}
+  io.in.zip(outer.src.interrupts).foreach{ case(i,j) => j.head := i}
 }

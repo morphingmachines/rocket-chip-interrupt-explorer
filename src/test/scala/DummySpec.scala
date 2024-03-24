@@ -1,8 +1,9 @@
-package adder
+package explorer
 
+import chisel3._
 import chiseltest._
 import freechips.rocketchip.diplomacy.LazyModule
-import org.chipsalliance.cde.config.Config
+//import org.chipsalliance.cde.config.Config
 import org.scalatest.freespec.AnyFreeSpec
 
 /** This is a trivial example of how to run this Specification: From a terminal shell use:
@@ -10,12 +11,12 @@ import org.scalatest.freespec.AnyFreeSpec
   * mill adder.test.testOnly adder.DiplomaticAdder
   * }}}
   */
-class DiplomaticAdder extends AnyFreeSpec with ChiselScalatestTester {
+class DummySpec extends AnyFreeSpec with ChiselScalatestTester {
 
-  "Diplomatic Adder must properly negotiate the width parameter" in {
+  "Dummy Test" in {
     test(
       LazyModule(
-        new example5.AdderTestHarness()(new Config(new example5.DiplomacyExampleConfig)) with example5.HasOneNodeMonitor,
+        new example1.TopModule,
       ).module,
     ).withAnnotations(
       Seq(
@@ -23,8 +24,8 @@ class DiplomaticAdder extends AnyFreeSpec with ChiselScalatestTester {
         VerilatorBackendAnnotation, // Uncomment to use the Verilator backend
       ),
     ) { dut =>
-      dut.io.op1Valid.poke(true)
-      dut.io.op2Valid.poke(true)
+      dut.io.in(0).poke(true.B)
+      println(dut.io.out.peek())
       dut.clock.step(10)
     }
   }

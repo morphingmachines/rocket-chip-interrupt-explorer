@@ -2,7 +2,7 @@ package explorer.example1
 
 import chisel3._
 
-import freechips.rocketchip.diplomacy.{LazyModule, LazyModuleImp}
+import freechips.rocketchip.diplomacy.{LazyModule, LazyModuleImp, InModuleBody}
 import freechips.rocketchip.interrupts.{
   IntRange,
   IntSourceParameters,
@@ -16,34 +16,23 @@ import org.chipsalliance.cde.config.Parameters
 
 class InterruptsGen(implicit p: Parameters) extends LazyModule {
   //Comprises one source node with one outward edge
-  val intSourcePortParams  = IntSourcePortParameters(sources = Seq(IntSourceParameters(range = IntRange(0,2))))
+  val intSourcePortParams  = IntSourcePortParameters(sources = Seq(IntSourceParameters(range = IntRange(0,2)))) // Edge with two interrupt signals; Vec[Bool] of length 2
   val node                 = IntSourceNode(portParams = Seq(intSourcePortParams)) //portParams length=1 for one edge.
+  val interrupts = InModuleBody{ node.makeIOs() } //Add source node IOs to the moduleImp 
   override lazy val module = new InterruptsGenImp(this)
 }
 
-class InterruptsGenImp(outer: InterruptsGen) extends LazyModuleImp(outer) {
-  val n = outer.node.out.head._2.source.num // number of interrupt signals associated with the edge
-  val io = IO(new Bundle {
-    val interrupt = Input(Vec(n,Bool()))
-  })
-  
-  outer.node.out.head._1.zip(io.interrupt).foreach{case(node_port, module_port) => node_port := module_port}
-}
+class InterruptsGenImp(outer: InterruptsGen) extends LazyModuleImp(outer) {}
 
 class InterruptsRecv(implicit p: Parameters) extends LazyModule {
   //Comprises one sink node with one inward edge
   val intSinkPortParams    = IntSinkPortParameters(sinks = Seq(IntSinkParameters()))
   val node                 = IntSinkNode(portParams = Seq(intSinkPortParams)) //portParams length=1 for one edge.
+  val interrupts = InModuleBody{ node.makeIOs()} //Add sink node IOs to the moduleImp
   override lazy val module = new InterruptsRecvImp(this)
 }
 
-class InterruptsRecvImp(outer: InterruptsRecv) extends LazyModuleImp(outer) {
-  val n = outer.node.in.head._2.source.num // number of interrupt signals associated with the edge
-  val io = IO(new Bundle {
-    val interrupt = Output(Vec(n,Bool()))
-  })
-  outer.node.in.head._1.zip(io.interrupt).foreach{case(node_port, module_port) => module_port := node_port}
-}
+class InterruptsRecvImp(outer: InterruptsRecv) extends LazyModuleImp(outer) {}
 
 class TopModule(implicit p: Parameters = Parameters.empty) extends LazyModule {
   val sink = LazyModule(new InterruptsRecv)
@@ -64,6 +53,6 @@ class TopModuleImp(outer: TopModule) extends LazyModuleImp(outer) {
     val out = Output(Vec(n,Bool()))
   })
 
-  io.out                        := outer.sink.module.io.interrupt
-  outer.src.module.io.interrupt := io.in
+  outer.sink.interrupts.foreach{i => io.out := i} 
+  outer.src.interrupts.foreach{i => i := io.in } 
 }
