@@ -37,6 +37,7 @@ trait Toplevel {
       s"${generated_sv_dir}.fir",
       "--disable-annotation-unknown",
       "--split-verilog",
+      "--disable-all-randomization",
       s"-o=${generated_sv_dir}",
       s"--output-annotation-file=${generated_sv_dir}/${topclass_name}.anno.json",
     ).call() // check additional options with "firtool --help"
@@ -79,10 +80,11 @@ object interruptsMain extends App with LazyToplevel {
   val lazyTop = args(0) match {
     case "example1" => LazyModule(new example1.TopModule)
     case "example2_1" => LazyModule(new example2.Method1(3))
-    case "example2_2" => LazyModule(new example2.Method2(4))
+    case "example2_2" => LazyModule(new example2.Method2(3))
     case "example2_3" => LazyModule(new example2.Method3(1))
     case "example2_4" => LazyModule(new example2.Method4(3))
     case "example3" => LazyModule(new example3.TopModule)
+    case "example4" => LazyModule(new example4.TopModule)
     case _ => throw new Exception("Unknown Module Name")
   }
 
